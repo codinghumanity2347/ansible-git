@@ -1,0 +1,74 @@
+--- #security 
+- hosts: demo
+  user : ansible
+  become : yes
+  vars:
+     - user_password: 'provpassword'
+       ROOT_PASSWORD: 'root'
+       ubuntu_common_required_packages:
+               - ufw
+               - fail2ban
+               - unattended-upgrades
+               - logwatch 
+  connection : ssh
+  tasks :
+          - name: Change root password
+            user: name=root password= "{{ ROOT_PASSWORD }}"
+
+          - name: Add a new user named provision
+            user: 
+                 name=provision
+                 password={{ user_password }}
+
+          - name: Deploy SSH Key
+            authorized_key: user=provision
+                            key= "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+                            state=present
+
+          - name: Add provision user to the sudoers
+            copy:
+                    dest: "/etc/sudoers.d/provision"
+                    content: "provision  ALL=(ALL)  NOPASSWD: ALL"
+        
+          - name: Update APT package cache
+            yum : 
+                name: '*'
+                state: latest
+
+
+
+          - name: Install required packages
+            yum : install '{{ item }}' -y
+            with_items: ubuntu_common_required_packages
+          
+          - name: Setup ufw
+            ufw: state=enabled policy=deny
+            when : ansible_os_family == 'Debian'
+
+
+          - name: Disable Password Authentication
+            lineinfile:
+                dest=/etc/ssh/sshd_config
+                regexp='^PasswordAuthentication'
+                line="PasswordAuthentication no"
+                state=present
+                backup=yes
+            notify:
+                    - restart ssh
+
+          - name: Disable Root Login
+            lineinfile:
+                dest=/etc/ssh/sshd_config
+                regexp='^PermitRootLogin'
+                line="PermitRootLogin no"
+                state=present
+                backup=yes
+            notify:
+                    - restart ssh 
+
+  handlers:
+           - name: restart ssh
+             service:
+                name=sshd
+                state=restarted
+
